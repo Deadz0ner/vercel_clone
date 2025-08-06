@@ -1,0 +1,22 @@
+{
+  "name": "vercel_clone",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@azure/storage-blob": "^12.28.0",
+    "@types/express": "^5.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "path": "^0.12.7",
+    "redis": "^5.7.0",
+    "simple-git": "^3.28.0"
+  }
+}

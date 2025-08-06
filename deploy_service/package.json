@@ -1,0 +1,19 @@
+{
+  "name": "deploy_service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@azure/storage-blob": "^12.28.0",
+    "dotenv": "^17.2.1",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7",
+    "redis": "^5.7.0"
+  }
+}
