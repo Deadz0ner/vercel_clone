@@ -5,10 +5,10 @@ const uploadToContainer = require('./uploadToContainer');
 require("dotenv").config();
 
 const subscriber = createClient({
-  url: "redis://localhost:6379", // Check your correct Redis port
+  url: process.env.REDIS_STRING, // Check your correct Redis port
 });
 const publisher = createClient({
-  url: "redis://localhost:6379", // Check your correct Redis port
+  url: process.env.REDIS_STRING, // Check your correct Redis port
 });
 
 subscriber.on("error", (err) => {
