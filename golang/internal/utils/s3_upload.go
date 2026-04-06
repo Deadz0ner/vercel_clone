@@ -1,4 +1,4 @@
-package deploy
+package utils
 
 import (
 	"context"
@@ -9,11 +9,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"vercel-clone/internal/config"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-func uploadDirectoryToSupabaseS3(ctx context.Context, client *s3.Client, bucket, rootDir, keyPrefix string) error {
+func UploadDirectoryToSupabaseS3(ctx context.Context, client *s3.Client, rootDir, keyPrefix string) error {
+	bucket := config.Load().S3Bucket
+
 	return filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr

@@ -15,7 +15,9 @@ type Config struct {
 	RedisAddr                 string
 	RedisPassword             string
 	RedisDB                   string
-	RedisChannel              string
+	RedisQueue                string
+	BuilderImage              string
+	BuilderCommand            string
 	S3Bucket                  string
 	SupabaseS3Region          string
 	SupabaseS3Endpoint        string
@@ -37,7 +39,9 @@ func Load() *Config {
 			RedisAddr:                 getEnv("REDIS_ADDR", "localhost:6379"),
 			RedisPassword:             getEnv("REDIS_PASSWORD", ""),
 			RedisDB:                   getEnv("REDIS_DB", "0"),
-			RedisChannel:              getEnv("REDIS_CHANNEL", "deploy:jobs"),
+			RedisQueue:                getEnv("REDIS_QUEUE", "deploy:jobs"),
+			BuilderImage:              getEnv("BUILDER_IMAGE", "node:20-alpine"),
+			BuilderCommand:            getEnv("BUILDER_COMMAND", "npm install && npm run build"),
 			S3Bucket:                  mustGetEnv("SUPABASE_S3_BUCKET"),
 			SupabaseS3Region:          getEnv("SUPABASE_S3_REGION", "ap-southeast-1"),
 			SupabaseS3Endpoint:        mustGetEnv("SUPABASE_S3_ENDPOINT"),

@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
+	"vercel-clone/internal/builder"
 	"vercel-clone/internal/queue"
 	"vercel-clone/internal/utils"
 
@@ -25,29 +23,35 @@ func main() {
 	s3Client = client
 
 	redisClient = queue.NewRedisClient()
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	pubsub := queue.SubscribeToProjectIDs(ctx, redisClient)
-	defer pubsub.Close()
-
-	log.Println("[upload] waiting for project ids from redis pub/sub")
-
-	ch := pubsub.Channel()
+	log.Println("[UPLOAD] waiting for project ids from redis queue")
 	for {
-		select {
-		case <-ctx.Done():
-			log.Println("[upload] shutting down subscriber")
-			return
-		case msg := <-ch:
-			if msg == nil {
-				continue
-			}
-			log.Printf("[upload] received project id=%s", msg.Payload)
+		projectID, err := queue.PopProjectID(context.Background(), redisClient)
+		if err != nil {
+			log.Printf("[UPLOAD] failed to pop project id err=%v", err)
+			continue
 		}
-	}
+		if projectID == "" {
+			continue
+		}
+		log.Printf("[UPLOAD] received project id=%s", projectID)
+		projectPath := utils.GetProjectPath(projectID)
 
+		log.Printf("[UPLOAD] starting build for project id=%s path=%s", projectID, projectPath)
+		artifactPath, err := builder.RunBuildContainer(projectPath)
+		if err != nil {
+			log.Printf("[UPLOAD] failed to run build container for project id=%s: %v", projectID, err)
+			continue
+		}
+		log.Printf("[UPLOAD] build completed for project id=%s artifact_path=%s", projectID, artifactPath)
+
+		log.Printf("[UPLOAD] uploading artifact directory for project id=%s prefix=%s", projectID, projectID)
+		err = utils.UploadDirectoryToSupabaseS3(context.Background(), s3Client, artifactPath, projectID)
+		if err != nil {
+			log.Printf("[UPLOAD] failed to upload project id=%s to s3: %v", projectID, err)
+			continue
+		}
+		log.Printf("[UPLOAD] upload completed for project id=%s", projectID)
+	}
 }
 
 func initSupabaseClient() (*s3.Client, error) {

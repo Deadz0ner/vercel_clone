@@ -51,7 +51,7 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := queue.PublishProjectID(context.Background(), redisClient, resp.Id); err != nil {
-		log.Printf("[deployer] failed to publish project id=%s err=%v", resp.Id, err)
+		log.Printf("[DEPLOYER] failed to publish project id=%s err=%v", resp.Id, err)
 		http.Error(w, "deployment created but queue publish failed", http.StatusInternalServerError)
 		return
 	}

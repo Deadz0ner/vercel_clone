@@ -2,7 +2,9 @@ package queue
 
 import (
 	"context"
+	"fmt"
 	"strconv"
+	"time"
 
 	"vercel-clone/internal/config"
 
@@ -11,7 +13,6 @@ import (
 
 func NewRedisClient() *redis.Client {
 	cfg := config.Load()
-	// db converts the Redis database number from a string configuration value to an integer.
 	// strconv.Atoi (ASCII to Integer) parses the string representation of the database number
 	// from the configuration and returns it as an int, or an error if the string is not a valid integer.
 	db, err := strconv.Atoi(cfg.RedisDB)
@@ -27,9 +28,50 @@ func NewRedisClient() *redis.Client {
 }
 
 func PublishProjectID(ctx context.Context, client *redis.Client, projectID string) error {
-	return client.Publish(ctx, config.Load().RedisChannel, projectID).Err()
+	return client.RPush(ctx, config.Load().RedisQueue, projectID).Err()
 }
 
-func SubscribeToProjectIDs(ctx context.Context, client *redis.Client) *redis.PubSub {
-	return client.Subscribe(ctx, config.Load().RedisChannel)
+func PopProjectID(ctx context.Context, client *redis.Client) (string, error) {
+	result, err := client.BLPop(ctx, 0, config.Load().RedisQueue).Result()
+	if err != nil {
+		return "", err
+	}
+	if len(result) < 2 {
+		return "", nil
+	}
+	return result[1], nil
+}
+
+func Ping(ctx context.Context, client *redis.Client) error {
+	return client.Ping(ctx).Err()
+}
+
+func SelfTest(ctx context.Context, client *redis.Client) error {
+	if err := Ping(ctx, client); err != nil {
+		return fmt.Errorf("redis ping failed: %w", err)
+	}
+
+	testQueue := config.Load().RedisQueue + ":selftest"
+	testValue := fmt.Sprintf("redis-test-%d", time.Now().UnixNano())
+
+	if err := client.Del(ctx, testQueue).Err(); err != nil {
+		return fmt.Errorf("failed to clear test queue: %w", err)
+	}
+
+	if err := client.RPush(ctx, testQueue, testValue).Err(); err != nil {
+		return fmt.Errorf("failed to push test value: %w", err)
+	}
+
+	result, err := client.BLPop(ctx, 1*time.Second, testQueue).Result()
+	if err != nil {
+		return fmt.Errorf("failed to pop test value: %w", err)
+	}
+	if len(result) < 2 {
+		return fmt.Errorf("redis returned an unexpected blpop response: %v", result)
+	}
+	if result[1] != testValue {
+		return fmt.Errorf("redis queue mismatch: got %q want %q", result[1], testValue)
+	}
+
+	return nil
 }

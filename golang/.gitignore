@@ -26,3 +26,6 @@ go.sum
 
 # OS
 .DS_Store
+
+# Local playground / scratch commands
+/cmd/test/

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"path/filepath"
 	"time"
+	"vercel-clone/internal/config"
 
 	"github.com/google/uuid"
 )
@@ -37,4 +39,11 @@ func GenerateID(n int) string {
 	id := string(b)
 	log.Printf("[utils.id] generated random_id len=%d value=%s", n, id)
 	return id
+}
+
+func GetProjectPath(projectID string) string {
+	cfg := config.Load()
+	path := filepath.Join(cfg.BaseDir, projectID)
+	log.Printf("[utils.id] generated project path=%s for project id=%s", path, projectID)
+	return path
 }
