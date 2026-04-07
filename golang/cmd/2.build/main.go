@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
 	"vercel-clone/internal/builder"
 	"vercel-clone/internal/queue"
@@ -51,6 +52,16 @@ func main() {
 			continue
 		}
 		log.Printf("[UPLOAD] upload completed for project id=%s", projectID)
+
+		log.Printf("[UPLOAD] cleaning up local files for project id=%s", projectID)
+		if err := os.RemoveAll(projectPath); err != nil {
+			log.Printf("[UPLOAD] failed to remove project directory id=%s path=%s: %v", projectID, projectPath, err)
+		}
+		if artifactPath != projectPath {
+			if err := os.RemoveAll(artifactPath); err != nil {
+				log.Printf("[UPLOAD] failed to remove artifact directory id=%s path=%s: %v", projectID, artifactPath, err)
+			}
+		}
 	}
 }
 
