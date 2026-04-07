@@ -34,9 +34,11 @@ func RunBuildContainer(projectPath string) (string, error) {
 	buildScript := cfg.BuilderCommand
 
 	containerName := fmt.Sprintf("build-%s-%d", sanitizeName(filepath.Base(absProjectPath)), time.Now().Unix())
+	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	args := []string{
 		"run",
 		"--name", containerName,
+		"--user", uid,
 		"--network", "bridge",
 		"-v", absProjectPath + ":/workspace/project",
 		"-w", "/workspace/project",

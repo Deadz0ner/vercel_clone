@@ -42,6 +42,20 @@ func PopProjectID(ctx context.Context, client *redis.Client) (string, error) {
 	return result[1], nil
 }
 
+// PublishStatus publishes a status update to a project-specific Redis Pub/Sub channel.
+// The build service calls this; the entry service subscribes and forwards to WebSocket.
+func PublishStatus(ctx context.Context, client *redis.Client, projectID, status string) error {
+	channel := "status:" + projectID
+	return client.Publish(ctx, channel, status).Err()
+}
+
+// SubscribeStatus subscribes to status updates for a given project ID.
+// Returns the pubsub object — caller is responsible for closing it.
+func SubscribeStatus(ctx context.Context, client *redis.Client, projectID string) *redis.PubSub {
+	channel := "status:" + projectID
+	return client.Subscribe(ctx, channel)
+}
+
 func Ping(ctx context.Context, client *redis.Client) error {
 	return client.Ping(ctx).Err()
 }

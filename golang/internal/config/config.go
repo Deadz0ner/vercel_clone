@@ -23,6 +23,7 @@ type Config struct {
 	SupabaseS3Endpoint        string
 	SupabaseS3AccessKeyID     string
 	SupabaseS3SecretAccessKey string
+	ServeHost                 string
 }
 
 var (
@@ -47,6 +48,7 @@ func Load() *Config {
 			SupabaseS3Endpoint:        mustGetEnv("SUPABASE_S3_ENDPOINT"),
 			SupabaseS3AccessKeyID:     mustGetEnv("SUPABASE_S3_ACCESS_KEY_ID"),
 			SupabaseS3SecretAccessKey: mustGetEnv("SUPABASE_S3_SECRET_ACCESS_KEY"),
+			ServeHost:                 getEnv("SERVE_HOST", "http://localhost:3001"),
 		}
 	})
 	return loaded

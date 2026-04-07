@@ -29,16 +29,20 @@ func main() {
 
 	services := []service{
 		{
-			name:      "deployer",
-			dir:       "cmd/1.deployer",
-			endpoints: []string{"GET /health", "POST /deploy"},
+			name:      "entry",
+			dir:       "cmd/1.entry",
+			endpoints: []string{"GET /health", "POST /deploy", "WS /ws/{id}"},
 		},
 		{
-			name:      "upload",
-			dir:       "cmd/2.upload",
-			endpoints: []string{"GET /health", "POST /upload"},
+			name:      "build",
+			dir:       "cmd/2.build",
+			endpoints: []string{"(worker — no HTTP endpoints)"},
 		},
-		{name: "edge", dir: "cmd/3.edge"},
+		{
+			name:      "serve",
+			dir:       "cmd/3.serve",
+			endpoints: []string{"GET /{projectId}/{filepath}"},
+		},
 	}
 
 	log.Println("[routes] project endpoint inventory:")
