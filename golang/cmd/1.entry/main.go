@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"vercel-clone/internal/config"
 	"vercel-clone/internal/deploy"
 	"vercel-clone/internal/queue"
+	"vercel-clone/internal/utils"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -59,6 +61,10 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := queue.PublishProjectID(context.Background(), redisClient, resp.Id); err != nil {
 		log.Printf("[DEPLOYER] failed to publish project id=%s err=%v", resp.Id, err)
+		projectPath := utils.GetProjectPath(resp.Id)
+		if cleanupErr := os.RemoveAll(projectPath); cleanupErr != nil {
+			log.Printf("[DEPLOYER] failed to cleanup orphaned project id=%s path=%s err=%v", resp.Id, projectPath, cleanupErr)
+		}
 		http.Error(w, "deployment created but queue publish failed", http.StatusInternalServerError)
 		return
 	}

@@ -112,6 +112,9 @@ export function Landing() {
 
       ws.onclose = () => {
         wsRef.current = null;
+        setStatus((prev) =>
+          prev !== "deployed" && prev !== "failed" && prev !== "idle" ? "failed" : prev
+        );
       };
     } catch {
       setStatus("failed");

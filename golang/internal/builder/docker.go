@@ -15,7 +15,7 @@ import (
 	"vercel-clone/internal/config"
 )
 
-func RunBuildContainer(projectPath string) (string, error) {
+func RunBuildContainer(projectPath, projectID string) (string, error) {
 	absProjectPath, err := filepath.Abs(projectPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve project path: %w", err)
@@ -35,21 +35,30 @@ func RunBuildContainer(projectPath string) (string, error) {
 
 	containerName := fmt.Sprintf("build-%s-%d", sanitizeName(filepath.Base(absProjectPath)), time.Now().Unix())
 	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	basePath := "/" + projectID + "/"
+
+	// Inject --base for Vite projects, PUBLIC_URL covers CRA
+	wrappedScript := fmt.Sprintf(
+		`npm install && if [ -f vite.config.js ] || [ -f vite.config.ts ]; then npx vite build --base=%s; else npm run build; fi`,
+		basePath,
+	)
+
 	args := []string{
 		"run",
 		"--name", containerName,
 		"--user", uid,
 		"--network", "bridge",
+		"-e", "PUBLIC_URL=" + basePath,
 		"-v", absProjectPath + ":/workspace/project",
 		"-w", "/workspace/project",
 		image,
 		"sh",
 		"-lc",
-		buildScript,
+		wrappedScript,
 	}
 
 	log.Printf("[BUILDER] starting docker build container=%s image=%s project=%s", containerName, image, absProjectPath)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
@@ -69,9 +78,9 @@ func RunBuildContainer(projectPath string) (string, error) {
 		log.Printf("[CONTAINER] docker process returned with error container=%s err=%v", containerName, runErr)
 		printContainerFooter("failed", containerName, state, cleanupMessage, cleanupForced)
 		if ctx.Err() == context.DeadlineExceeded {
-			log.Printf("[BUILDER] build timed out after=2m0s container=%s project=%s", containerName, absProjectPath)
+			log.Printf("[BUILDER] build timed out after=5m0s container=%s project=%s", containerName, absProjectPath)
 			return "", fmt.Errorf(
-				"docker build timed out after 2 minutes; container=%s was killed\nstdout:\n%s\nstderr:\n%s",
+				"docker build timed out after 5 minutes; container=%s was killed\nstdout:\n%s\nstderr:\n%s",
 				containerName,
 				stdout.String(),
 				stderr.String(),

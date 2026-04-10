@@ -37,6 +37,17 @@ func Run(req DeployRequest) (DeployResponse, error) {
 
 	targetDir := filepath.Join(baseDir, id)
 	log.Printf("[DEPLOY.RUN] cloning repository into=%q", targetDir)
+	cleanupOnFailure := true
+	defer func() {
+		if !cleanupOnFailure {
+			return
+		}
+		if err := os.RemoveAll(targetDir); err != nil {
+			log.Printf("[DEPLOY.RUN] failed to cleanup partial local directory=%q err=%v", targetDir, err)
+			return
+		}
+		log.Printf("[DEPLOY.RUN] cleaned up partial local directory=%q", targetDir)
+	}()
 
 	// clone repo
 	_, err := git.PlainClone(targetDir, false, &git.CloneOptions{
@@ -47,6 +58,7 @@ func Run(req DeployRequest) (DeployResponse, error) {
 		log.Printf("[DEPLOY.RUN] clone failed after=%s err=%v", time.Since(start), err)
 		return DeployResponse{}, err
 	}
+	cleanupOnFailure = false
 	log.Printf("[DEPLOY.RUN] clone successful duration=%s", time.Since(start))
 
 	// ctx := context.Background()

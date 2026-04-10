@@ -20,8 +20,7 @@ import (
 )
 
 var s3Client *s3.Client
-
-var pathAliasCache sync.Map
+var knownProjects sync.Map
 
 func main() {
 	client, err := utils.NewSupabaseS3Client(context.Background())
@@ -42,7 +41,6 @@ func main() {
 
 // serveHandler resolves /<projectId>/path/to/file → S3 key: <projectId>/path/to/file
 func serveHandler(w http.ResponseWriter, r *http.Request) {
-	// Strip leading slash, expect at least projectId/filename
 	path := strings.TrimPrefix(r.URL.Path, "/")
 	if path == "" {
 		http.Error(w, "usage: /<projectId>/<file>", http.StatusBadRequest)
@@ -50,46 +48,52 @@ func serveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 2 || parts[1] == "" {
-		// Default to index.html if only projectId is given
-		path = parts[0] + "/index.html"
+	firstSegment := parts[0]
+
+	var projectID, filePath string
+
+	if _, ok := knownProjects.Load(firstSegment); ok {
+		// First segment is a known project ID
+		projectID = firstSegment
+		if len(parts) == 2 && parts[1] != "" {
+			filePath = parts[1]
+		} else {
+			filePath = "index.html"
+		}
+	} else if refID := projectIDFromReferer(r.Referer()); refID != "" {
+		// First segment is NOT a project ID — prepend the one from Referer
+		projectID = refID
+		filePath = path
+	} else {
+		// No referer context — treat first segment as project ID (first visit)
+		projectID = firstSegment
+		if len(parts) == 2 && parts[1] != "" {
+			filePath = parts[1]
+		} else {
+			filePath = "index.html"
+		}
+		knownProjects.Store(projectID, struct{}{})
 	}
+
+	objectKey := projectID + "/" + filePath
 
 	cfg := config.Load()
-	objectKeys := resolveObjectKeys(path, r.Referer())
-
-	var (
-		result    *s3.GetObjectOutput
-		err       error
-		objectKey string
-	)
-
-	for _, candidate := range objectKeys {
-		result, err = s3Client.GetObject(context.Background(), &s3.GetObjectInput{
-			Bucket: aws.String(cfg.S3Bucket),
-			Key:    aws.String(candidate),
-		})
-		if err == nil {
-			objectKey = candidate
-			rememberResolvedAlias(path, objectKey)
-			break
-		}
-
-		if !isNoSuchKeyError(err) {
-			log.Printf("[SERVE] 500 path=%s key=%s err=%v", r.URL.Path, candidate, err)
-			http.Error(w, "failed to fetch file", http.StatusInternalServerError)
+	result, err := s3Client.GetObject(context.Background(), &s3.GetObjectInput{
+		Bucket: aws.String(cfg.S3Bucket),
+		Key:    aws.String(objectKey),
+	})
+	if err != nil {
+		if isNoSuchKeyError(err) {
+			log.Printf("[SERVE] 404 path=%s key=%s", r.URL.Path, objectKey)
+			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-	}
-
-	if result == nil {
-		log.Printf("[SERVE] 404 path=%s", r.URL.Path)
-		http.Error(w, "not found", http.StatusNotFound)
+		log.Printf("[SERVE] 500 path=%s key=%s err=%v", r.URL.Path, objectKey, err)
+		http.Error(w, "failed to fetch file", http.StatusInternalServerError)
 		return
 	}
 	defer result.Body.Close()
 
-	// Set content type from file extension
 	ext := filepath.Ext(objectKey)
 	contentType := mime.TypeByExtension(ext)
 	if contentType == "" {
@@ -104,129 +108,33 @@ func serveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf(
-		"[SERVE] 200 path=%s key=%s type=%s bytes=%d",
-		r.URL.Path,
-		objectKey,
-		contentType,
-		written,
-	)
-}
-
-func resolveObjectKeys(path, referer string) []string {
-	keys := []string{path}
-
-	if aliasKey := resolveObjectKeyFromAlias(path); aliasKey != "" {
-		keys = append(keys, aliasKey)
-	}
-
-	refererProjectID := projectIDFromReferer(referer)
-	if refererProjectID == "" {
-		return dedupeStrings(keys)
-	}
-
-	trimmedPath := strings.Trim(path, "/")
-	if trimmedPath == "" {
-		return dedupeStrings(keys)
-	}
-
-	parts := strings.Split(trimmedPath, "/")
-	var candidate string
-	if len(parts) == 1 {
-		candidate = refererProjectID + "/" + parts[0]
-	} else {
-		candidate = refererProjectID + "/" + strings.Join(parts[1:], "/")
-	}
-
-	if candidate != path {
-		keys = append(keys, candidate)
-	}
-
-	return dedupeStrings(keys)
-}
-
-func resolveObjectKeyFromAlias(path string) string {
-	trimmedPath := strings.Trim(path, "/")
-	if trimmedPath == "" {
-		return ""
-	}
-
-	parts := strings.Split(trimmedPath, "/")
-	if len(parts) < 2 {
-		return ""
-	}
-
-	aliasPrefix := parts[0]
-	projectIDAny, ok := pathAliasCache.Load(aliasPrefix)
-	if !ok {
-		return ""
-	}
-
-	projectID, ok := projectIDAny.(string)
-	if !ok || strings.TrimSpace(projectID) == "" {
-		return ""
-	}
-
-	return projectID + "/" + strings.Join(parts[1:], "/")
+	knownProjects.Store(projectID, struct{}{})
+	log.Printf("[SERVE] 200 path=%s key=%s type=%s bytes=%d", r.URL.Path, objectKey, contentType, written)
 }
 
 func projectIDFromReferer(referer string) string {
-	if strings.TrimSpace(referer) == "" {
+	if referer == "" {
 		return ""
 	}
-
 	parsed, err := url.Parse(referer)
 	if err != nil {
 		return ""
 	}
-
-	refererPath := strings.Trim(parsed.Path, "/")
-	if refererPath == "" {
+	p := strings.Trim(parsed.Path, "/")
+	if p == "" {
 		return ""
 	}
-
-	parts := strings.SplitN(refererPath, "/", 2)
-	if len(parts) == 0 {
-		return ""
+	seg := strings.SplitN(p, "/", 2)[0]
+	if _, ok := knownProjects.Load(seg); ok {
+		return seg
 	}
-
-	return parts[0]
+	return ""
 }
 
 func isNoSuchKeyError(err error) bool {
 	if err == nil {
 		return false
 	}
-
 	msg := err.Error()
 	return strings.Contains(msg, "NoSuchKey") || strings.Contains(msg, "not found")
-}
-
-func dedupeStrings(items []string) []string {
-	seen := make(map[string]struct{}, len(items))
-	result := make([]string, 0, len(items))
-	for _, item := range items {
-		if _, ok := seen[item]; ok {
-			continue
-		}
-		seen[item] = struct{}{}
-		result = append(result, item)
-	}
-	return result
-}
-
-func rememberResolvedAlias(requestPath, objectKey string) {
-	requestParts := strings.Split(strings.Trim(requestPath, "/"), "/")
-	objectParts := strings.Split(strings.Trim(objectKey, "/"), "/")
-	if len(requestParts) < 2 || len(objectParts) < 2 {
-		return
-	}
-
-	requestPrefix := requestParts[0]
-	objectPrefix := objectParts[0]
-	if requestPrefix == "" || objectPrefix == "" || requestPrefix == objectPrefix {
-		return
-	}
-
-	pathAliasCache.Store(requestPrefix, objectPrefix)
 }

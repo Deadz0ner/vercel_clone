@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"vercel-clone/internal/builder"
 	"vercel-clone/internal/config"
@@ -38,45 +40,7 @@ func main() {
 		}
 		log.Printf("[UPLOAD] received project id=%s", projectID)
 
-		// Notify frontend: building
-		queue.PublishStatus(context.Background(), redisClient, projectID, "building")
-
-		projectPath := utils.GetProjectPath(projectID)
-
-		log.Printf("[UPLOAD] starting build for project id=%s path=%s", projectID, projectPath)
-		artifactPath, err := builder.RunBuildContainer(projectPath)
-		if err != nil {
-			log.Printf("[UPLOAD] failed to run build container for project id=%s: %v", projectID, err)
-			queue.PublishStatus(context.Background(), redisClient, projectID, "failed")
-			continue
-		}
-		log.Printf("[UPLOAD] build completed for project id=%s artifact_path=%s", projectID, artifactPath)
-
-		// Notify frontend: uploading artifacts
-		queue.PublishStatus(context.Background(), redisClient, projectID, "uploading")
-
-		log.Printf("[UPLOAD] uploading artifact directory for project id=%s prefix=%s", projectID, projectID)
-		err = utils.UploadDirectoryToSupabaseS3(context.Background(), s3Client, artifactPath, projectID)
-		if err != nil {
-			log.Printf("[UPLOAD] failed to upload project id=%s to s3: %v", projectID, err)
-			queue.PublishStatus(context.Background(), redisClient, projectID, "failed")
-			continue
-		}
-		log.Printf("[UPLOAD] upload completed for project id=%s", projectID)
-
-		log.Printf("[UPLOAD] cleaning up local files for project id=%s", projectID)
-		if err := os.RemoveAll(projectPath); err != nil {
-			log.Printf("[UPLOAD] failed to remove project directory id=%s path=%s: %v", projectID, projectPath, err)
-		}
-		if artifactPath != projectPath {
-			if err := os.RemoveAll(artifactPath); err != nil {
-				log.Printf("[UPLOAD] failed to remove artifact directory id=%s path=%s: %v", projectID, artifactPath, err)
-			}
-		}
-
-		// Notify frontend: deployed — include the URL
-		deployedURL := cfg.ServeHost + "/" + projectID + "/index.html"
-		queue.PublishStatus(context.Background(), redisClient, projectID, "deployed:"+deployedURL)
+		processProject(projectID, cfg.ServeHost)
 	}
 }
 
@@ -86,4 +50,70 @@ func initSupabaseClient() (*s3.Client, error) {
 		return nil, err
 	}
 	return client, nil
+}
+
+func processProject(projectID, serveHost string) {
+	// Notify frontend: building
+	queue.PublishStatus(context.Background(), redisClient, projectID, "building")
+
+	projectPath := utils.GetProjectPath(projectID)
+	artifactPath := ""
+	defer func() {
+		cleanupProjectFiles(projectID, projectPath, artifactPath)
+	}()
+
+	log.Printf("[UPLOAD] starting build for project id=%s path=%s", projectID, projectPath)
+	var err error
+	artifactPath, err = builder.RunBuildContainer(projectPath, projectID)
+	if err != nil {
+		log.Printf("[UPLOAD] failed to run build container for project id=%s: %v", projectID, err)
+		queue.PublishStatus(context.Background(), redisClient, projectID, "failed")
+		return
+	}
+	log.Printf("[UPLOAD] build completed for project id=%s artifact_path=%s", projectID, artifactPath)
+
+	// Notify frontend: uploading artifacts
+	queue.PublishStatus(context.Background(), redisClient, projectID, "uploading")
+
+	log.Printf("[UPLOAD] uploading artifact directory for project id=%s prefix=%s", projectID, projectID)
+	if err := utils.UploadDirectoryToSupabaseS3(context.Background(), s3Client, artifactPath, projectID); err != nil {
+		log.Printf("[UPLOAD] failed to upload project id=%s to s3: %v", projectID, err)
+		queue.PublishStatus(context.Background(), redisClient, projectID, "failed")
+		return
+	}
+	log.Printf("[UPLOAD] upload completed for project id=%s", projectID)
+
+	// Notify frontend: deployed — include the URL
+	deployedURL := serveHost + "/" + projectID + "/index.html"
+	queue.PublishStatus(context.Background(), redisClient, projectID, "deployed:"+deployedURL)
+}
+
+func cleanupProjectFiles(projectID, projectPath, artifactPath string) {
+	log.Printf("[UPLOAD] cleaning up local files for project id=%s", projectID)
+	if err := os.RemoveAll(projectPath); err != nil {
+		log.Printf("[UPLOAD] failed to remove project directory id=%s path=%s: %v", projectID, projectPath, err)
+	}
+
+	if shouldRemoveArtifactDir(projectPath, artifactPath) {
+		if err := os.RemoveAll(artifactPath); err != nil {
+			log.Printf("[UPLOAD] failed to remove artifact directory id=%s path=%s: %v", projectID, artifactPath, err)
+		}
+	}
+}
+
+func shouldRemoveArtifactDir(projectPath, artifactPath string) bool {
+	if artifactPath == "" || artifactPath == projectPath {
+		return false
+	}
+
+	relPath, err := filepath.Rel(projectPath, artifactPath)
+	if err != nil {
+		return true
+	}
+
+	if relPath == "." {
+		return false
+	}
+
+	return relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator))
 }
